@@ -1,0 +1,128 @@
+# PIPELINE DEFINITION
+# Name: mlops-pipeline
+# Inputs:
+#    a: str [Default: 'stres']
+#    b: str [Default: 'sed']
+components:
+  comp-concat:
+    executorLabel: exec-concat
+    inputDefinitions:
+      parameters:
+        a:
+          parameterType: STRING
+        b:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-reverse:
+    executorLabel: exec-reverse
+    inputDefinitions:
+      parameters:
+        a:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        after:
+          parameterType: STRING
+        before:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-concat:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - concat
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0-beta.9'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef concat(a: str, b: str) -> str:\n    return a + b\n\n"
+        image: python:3.7
+    exec-reverse:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - reverse
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0-beta.9'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef reverse(a: str) -> NamedTuple(\"outputs\", [(\"before\", str),\
+          \ (\"after\", str)]):\n    return a, a[::-1]\n\n"
+        image: python:3.7
+pipelineInfo:
+  name: mlops-pipeline
+root:
+  dag:
+    tasks:
+      concat:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-concat
+        inputs:
+          parameters:
+            a:
+              componentInputParameter: a
+            b:
+              componentInputParameter: b
+        taskInfo:
+          name: concat
+      reverse:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-reverse
+        dependentTasks:
+        - concat
+        inputs:
+          parameters:
+            a:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: concat
+        taskInfo:
+          name: reverse
+  inputDefinitions:
+    parameters:
+      a:
+        defaultValue: stres
+        parameterType: STRING
+      b:
+        defaultValue: sed
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.0.0-beta.9
